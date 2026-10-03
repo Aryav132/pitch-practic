@@ -1,0 +1,10 @@
+[project]
+name = "pitch-practice"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["slow: needs model weights / takes >10 s (run with -m slow)"]
+addopts = "-m 'not slow'"
