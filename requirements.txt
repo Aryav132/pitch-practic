@@ -1,4 +1,4 @@
-# Core pipeline (no torch). Pinned to the versions the tests were run against.
+# Core pipeline (no torch). For vocal separation also install requirements-separation.txt.
 numpy==2.5.3
 scipy==1.18.1
 librosa==1.0.0

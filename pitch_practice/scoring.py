@@ -73,6 +73,7 @@ class Report:
     unsure_s: float
     extra_sound_s: float
     threshold_cents: float
+    pitch_time_tolerance_ms: float
     timing_threshold_ms: float
     sections: list[Section]
     worst: list[Section]
@@ -145,6 +146,25 @@ def _per_ref_frame(alignment: Alignment, take_cents_adj: np.ndarray, n_ref: int)
     return take_c, take_j
 
 
+def tolerant_deviation(take_c: np.ndarray, ref_c: np.ndarray, k: int) -> np.ndarray:
+    """take - ref, using whichever voiced reference frame within +/-k frames
+    is closest in pitch. Signed, so sharp/flat survives. k = 0 is exact."""
+    n = len(ref_c)
+    best = take_c - ref_c
+    for shift in range(-k, k + 1):
+        if shift == 0:
+            continue
+        ref_shifted = np.full(n, np.nan)          # ref_shifted[i] = ref_c[i + shift]
+        if shift > 0:
+            ref_shifted[:n - shift] = ref_c[shift:]
+        else:
+            ref_shifted[-shift:] = ref_c[:n + shift]
+        d = take_c - ref_shifted
+        closer = np.isfinite(d) & ~(np.abs(best) <= np.abs(d))   # NaN best counts as worse
+        best = np.where(closer, d, best)
+    return best
+
+
 def _note_starts(ref_cents: np.ndarray, cfg: AnalysisConfig) -> np.ndarray:
     """Reference frames where a note starts: voice entries and pitch changes."""
     n = len(ref_cents)
@@ -213,7 +233,8 @@ def score(ref: PitchTrack, take: PitchTrack, alignment: Alignment,
     status = np.select([ref_v & take_v, ref_v, take_v], [BOTH, MISSED, EXTRA], SILENT)
     both = status == BOTH
 
-    dev = np.where(both, take_c - ref_c, np.nan)
+    k = round(cfg.pitch_time_tolerance_ms / 1000 / hop)
+    dev = np.where(both, tolerant_deviation(take_c, ref_c, k), np.nan)
     near_octave = both & (np.abs(np.abs(dev) - 1200) < cfg.octave_error_tolerance_cents)
     max_run = round(cfg.octave_error_max_run_s / hop)
     # Short octave jumps = tracker error; long ones = really sung an octave off.
@@ -283,6 +304,7 @@ def score(ref: PitchTrack, take: PitchTrack, alignment: Alignment,
         unsure_s=unsure.sum() * hop,
         extra_sound_s=(status == EXTRA).sum() * hop,
         threshold_cents=cfg.pitch_threshold_cents,
+        pitch_time_tolerance_ms=cfg.pitch_time_tolerance_ms,
         timing_threshold_ms=cfg.timing_threshold_ms,
         sections=sections,
         worst=ranked[: cfg.n_worst_sections],
@@ -304,8 +326,9 @@ def summary_text(r: Report) -> str:
     """Plain-language summary. All numbers come from the Report."""
     lines = [
         f"Pitch accuracy: {r.accuracy_pct:.0f}% of your sung notes were within "
-        f"{r.threshold_cents:.0f} cents of the reference "
-        f"(average miss {r.mean_abs_dev_cents:.0f} cents, "
+        f"{r.threshold_cents:.0f} cents of the reference"
+        + (f", compared within ±{r.pitch_time_tolerance_ms:.0f} ms " if r.pitch_time_tolerance_ms else " ")
+        + f"(average miss {r.mean_abs_dev_cents:.0f} cents, "
         f"{'flat' if r.mean_dev_cents < 0 else 'sharp'} tendency {r.mean_dev_cents:+.0f} cents).",
         r.key_description,
         f"Timing: your note starts were on average {r.mean_abs_drift_ms:.0f} ms away from "

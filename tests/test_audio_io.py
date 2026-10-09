@@ -60,3 +60,16 @@ def test_hash_depends_on_content(tmp_path):
     sf.write(a, tone(440.0, 0.5), 24000)
     sf.write(b, tone(441.0, 0.5), 24000)
     assert file_sha256(a) == file_sha256(a) != file_sha256(b)
+
+
+def test_mono_is_the_plain_average_of_channels(tmp_path):
+    p = tmp_path / "s.wav"
+    left = np.full(16000, 0.4, np.float32)
+    sf.write(p, np.stack([left, left * 0.5], 1), 16000, subtype="FLOAT")
+    assert np.median(load_audio(p, sr=16000)) == pytest.approx(0.3, abs=1e-4)
+
+
+def test_mono_file_level_is_unchanged(tmp_path):
+    p = tmp_path / "m.wav"
+    sf.write(p, np.full(16000, 0.25, np.float32), 16000, subtype="FLOAT")
+    assert np.median(load_audio(p, sr=16000)) == pytest.approx(0.25, abs=1e-4)

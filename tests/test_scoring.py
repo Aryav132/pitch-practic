@@ -5,7 +5,8 @@ import pytest
 
 from pitch_practice.alignment import align
 from pitch_practice.config import AnalysisConfig
-from pitch_practice.scoring import _sections, describe_key, score, summary_text
+from pitch_practice.scoring import (
+    _sections, describe_key, score, summary_text, tolerant_deviation)
 from tests.synth import MELODY, melody_track, shift
 
 CFG = AnalysisConfig()
@@ -83,9 +84,11 @@ def test_held_wrong_note_is_the_worst_section_with_correct_time():
     bad_t = r.frames.times_s[r.frames.off_pitch]
     assert bad_t.min() == pytest.approx(t_wrong, abs=0.1)
     assert bad_t.max() == pytest.approx(t_wrong + 0.5, abs=0.1)
-    assert w.off_dev_cents == pytest.approx(300, abs=1)   # not diluted by good notes
+    # Not diluted by the good notes. (~294, not 300: with the +/-30 ms slack
+    # the first 3 frames of the wrong note may match the previous note.)
+    assert w.off_dev_cents == pytest.approx(300, abs=10)
     assert w.off_direction == "sharp"
-    assert "by 300 cents (sharp)" in summary_text(r)
+    assert "cents (sharp) when off" in summary_text(r)
 
 
 def test_short_octave_blip_is_unsure_not_wrong():
@@ -96,6 +99,32 @@ def test_short_octave_blip_is_unsure_not_wrong():
     r = run(blip)
     assert r.accuracy_pct == 100
     assert r.unsure_s == pytest.approx(0.1, abs=0.03)
+
+
+def test_slack_forgives_a_glide_sung_30ms_late():
+    ref = np.linspace(6000, 6600, 60)               # 600 c slide over 0.6 s
+    take = np.concatenate([np.full(3, 6000.0), ref[:-3]])   # same slide, 30 ms late
+    strict = tolerant_deviation(take, ref, 0)
+    slack = tolerant_deviation(take, ref, 3)
+    assert np.max(np.abs(strict)) == pytest.approx(30, abs=1)   # 3 frames x 10 c
+    assert np.max(np.abs(slack)) < 1
+
+
+def test_slack_keeps_sign_and_handles_unvoiced_neighbours():
+    ref = np.array([np.nan, 6000, 6000, 6000, np.nan])
+    take = np.array([np.nan, 5900, 5900, 5900, np.nan])
+    assert tolerant_deviation(take, ref, 3)[1:4].tolist() == [-100, -100, -100]
+
+
+def test_slack_does_not_hide_a_held_wrong_note():
+    # 0.5 s held 100 c flat must still be flagged with the default +/-30 ms.
+    wrong = list(MELODY)
+    wrong[7] = (MELODY[7][0] - 100, 0.5)
+    wrong.insert(8, (MELODY[7][0], 0.2))
+    r = run(wrong)
+    held = (r.frames.times_s > note_start(7) + 0.05) & (r.frames.times_s < note_start(7) + 0.45)
+    assert r.frames.off_pitch[held].all()
+    assert r.worst[0].off_direction == "flat"
 
 
 # ---------------------------------------------------------------- not sung / extra

@@ -65,7 +65,8 @@ def make_figure(r: Report) -> go.Figure:
     ), row=1, col=1)
     off = f.off_pitch
     fig.add_trace(go.Scatter(
-        x=t[off], y=f.take_cents[off], name=f"Off-pitch (> {r.threshold_cents:.0f} c)",
+        x=t[off], y=f.take_cents[off], name=f"Off-pitch (> {r.threshold_cents:.0f} c"
+        + (f", ±{r.pitch_time_tolerance_ms:.0f} ms)" if r.pitch_time_tolerance_ms else ")"),
         mode="markers", marker=dict(color=OFF_COLOR, size=8, symbol="circle",
                                     line=dict(color=SURFACE, width=1)),
         customdata=hover[off],

@@ -76,6 +76,12 @@ class AnalysisConfig:
     # --- Scoring ------------------------------------------------------------
     # A frame is off-pitch if |take - ref| (after key offset) exceeds this.
     pitch_threshold_cents: float = 40.0
+    # Pitch is compared against the reference within +/- this many ms, so a
+    # slide sung 30 ms late isn't ALSO counted as wrong pitch (timing is
+    # scored separately). Measured on a real ornamented song: 78% -> 89%,
+    # held-note errors 19% -> 13%. Too short to hide a held wrong note.
+    # 0 = strict, exact-instant comparison.
+    pitch_time_tolerance_ms: float = 30.0
     # A section is called early/late if its median drift exceeds this.
     timing_threshold_ms: float = 150.0
     # Timing is only measured at reference note starts: a voice entry, or a

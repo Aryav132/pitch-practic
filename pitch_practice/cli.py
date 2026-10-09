@@ -3,6 +3,10 @@ write an interactive HTML graph and (optionally) the JSON report.
 
     python -m pitch_practice.cli reference.m4a take.m4a [--start 30]
         [--mode snapped|free|absolute] [--threshold 40] [--html out.html] [--json out.json]
+        [--clean-reference] [--device auto|cpu|mps]
+
+By default the reference is treated as a full song and its vocals are
+separated with Demucs (cached). Use --clean-reference for a solo vocal.
 """
 
 import argparse
@@ -15,6 +19,7 @@ from .config import AnalysisConfig
 from .pipeline import analyze_files
 from .plotting import make_figure
 from .scoring import summary_text
+from .separation import DemucsSeparator, NoSeparator
 
 
 def main() -> None:
@@ -28,10 +33,22 @@ def main() -> None:
     ap.add_argument("--html", default="report.html")
     ap.add_argument("--json", default=None)
     ap.add_argument("--no-open", action="store_true", help="don't open the browser")
+    ap.add_argument("--clean-reference", action="store_true",
+                    help="reference is already a solo vocal: skip separation")
+    ap.add_argument("--device", default="auto", choices=["auto", "cpu", "mps"],
+                    help="where Demucs runs (auto = Apple GPU if available)")
     args = ap.parse_args()
 
     cfg = replace(AnalysisConfig(), key_mode=args.mode, pitch_threshold_cents=args.threshold)
-    report = analyze_files(args.reference, args.take, args.start, cfg)
+    if args.clean_reference:
+        separator = NoSeparator()
+    else:
+        separator = DemucsSeparator(device=args.device)
+        stem = separator.cache_path(args.reference, args.start, cfg.max_ref_s)
+        if not stem.exists():
+            print("Separating vocals from the reference (first time for this section, "
+                  "~30 s on Apple GPU, ~2 min on CPU)...", flush=True)
+    report = analyze_files(args.reference, args.take, args.start, cfg, separator=separator)
     print(summary_text(report))
 
     make_figure(report).write_html(args.html, include_plotlyjs="cdn")

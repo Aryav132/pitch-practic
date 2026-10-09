@@ -66,3 +66,52 @@ MELODY = [
     (6900, 0.6), (7100, 0.4), (6700, 0.8), (None, 0.5),
     (6400, 0.4), (6600, 0.4), (6300, 0.6), (6000, 1.1),
 ]
+
+
+def voice_like(notes, sr: int = SR, seed: int = 0) -> np.ndarray:
+    """Melody that is a bit more voice-like than `tone`: 12 harmonics with a
+    vowel-ish spectral tilt and formant bumps, 5.5 Hz vibrato (+/-30 c),
+    soft attacks, and a little breath noise. Ground truth = the note list."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for c, d in notes:
+        n = int(round(d * sr))
+        if c is None:
+            out.append(np.zeros(n, np.float32))
+            continue
+        t = np.arange(n) / sr
+        f = cents_to_hz(c) * 2 ** (30 / 1200 * np.sin(2 * np.pi * 5.5 * t))
+        ph = 2 * np.pi * np.cumsum(f) / sr
+        f0 = cents_to_hz(c)
+        y = np.zeros(n)
+        for k in range(1, 13):
+            fk = k * f0
+            formant = 1 + 2.5 * np.exp(-((fk - 700) / 250) ** 2) + 1.5 * np.exp(-((fk - 1200) / 300) ** 2)
+            y += formant / k * np.sin(k * ph)
+        env = np.minimum(1, t / 0.04) * np.minimum(1, (d - t) / 0.06)
+        y = y / np.max(np.abs(y)) * env + 0.01 * rng.standard_normal(n) * env
+        out.append(y.astype(np.float32))
+    return 0.3 * np.concatenate(out)
+
+
+def backing_track(dur_s: float, sr: int = SR, bpm: float = 100, seed: int = 1) -> np.ndarray:
+    """Drums (kick + hi-hat), bass and a sustained chord pad, all synthetic."""
+    rng = np.random.default_rng(seed)
+    n = int(round(dur_s * sr))
+    t = np.arange(n) / sr
+    beat = 60 / bpm
+    y = np.zeros(n)
+    for b in np.arange(0, dur_s, beat):                       # kick on every beat
+        i = int(b * sr); m = min(n - i, int(0.25 * sr)); tt = np.arange(m) / sr
+        y[i:i + m] += 0.9 * np.sin(2 * np.pi * (50 + 60 * np.exp(-tt * 30)) * tt) * np.exp(-tt * 12)
+    for b in np.arange(beat / 2, dur_s, beat):                # hi-hat off-beats
+        i = int(b * sr); m = min(n - i, int(0.05 * sr))
+        y[i:i + m] += 0.15 * rng.standard_normal(m) * np.exp(-np.arange(m) / sr * 80)
+    roots = [cents_to_hz(c) for c in (3600, 4100, 3900, 3400)]  # C2 F2 Eb2 Bb1, 2 bars each
+    bar = 4 * beat
+    root = np.array([roots[int(x // (2 * bar)) % 4] for x in t])
+    y += 0.25 * np.sin(2 * np.pi * np.cumsum(root) / sr)                   # bass
+    for mult in (2, 2 * 2 ** (4 / 12), 2 * 2 ** (7 / 12)):                 # pad: triad
+        ph = 2 * np.pi * np.cumsum(root * mult * 2) / sr
+        y += 0.05 * sum(np.sin(k * ph) / k for k in range(1, 6))
+    return (y / np.max(np.abs(y)) * 0.5).astype(np.float32)
