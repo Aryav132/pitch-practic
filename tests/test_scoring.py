@@ -6,7 +6,7 @@ import pytest
 from pitch_practice.alignment import align
 from pitch_practice.config import AnalysisConfig
 from pitch_practice.scoring import (
-    _sections, describe_key, score, summary_text, tolerant_deviation)
+    _sections, describe_key, note_spans, score, summary_text, tolerant_deviation)
 from tests.synth import MELODY, melody_track, shift
 
 CFG = AnalysisConfig()
@@ -261,3 +261,20 @@ def test_report_is_json_serialisable_and_summary_renders():
     json.dumps(r.to_dict(include_frames=True))
     text = summary_text(r)
     assert "Pitch accuracy" in text and "octave above" in text
+
+
+def test_brief_dropout_does_not_split_or_lose_a_note():
+    # Seen on a real take: a 10-20 ms unvoiced flicker right after a note
+    # started made the note 0.01 s long and dropped the rest of it.
+    track = melody_track([(6000, 0.5), (6200, 0.02), (None, 0.02), (6200, 0.66), (None, 0.4)])
+    spans = [(a * CFG.hop_s, b * CFG.hop_s) for a, b in note_spans(track.cents, CFG)]
+    # Note changes are located to ~30 ms (the detector compares +/-30 ms).
+    assert len(spans) == 2
+    assert spans[0][1] == pytest.approx(0.5, abs=0.04)
+    assert spans[1] == (pytest.approx(0.5, abs=0.04), pytest.approx(1.2, abs=0.01))
+
+
+def test_rest_ends_a_note():
+    track = melody_track([(6000, 0.5), (None, 0.4), (6000, 0.5)])
+    spans = [(round(a * CFG.hop_s, 2), round(b * CFG.hop_s, 2)) for a, b in note_spans(track.cents, CFG)]
+    assert spans == [(0.0, 0.5), (0.9, 1.4)]

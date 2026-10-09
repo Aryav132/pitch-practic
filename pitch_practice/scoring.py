@@ -165,7 +165,7 @@ def tolerant_deviation(take_c: np.ndarray, ref_c: np.ndarray, k: int) -> np.ndar
     return best
 
 
-def _note_starts(ref_cents: np.ndarray, cfg: AnalysisConfig) -> np.ndarray:
+def note_starts(ref_cents: np.ndarray, cfg: AnalysisConfig) -> np.ndarray:
     """Reference frames where a note starts: voice entries and pitch changes."""
     n = len(ref_cents)
     voiced = ~np.isnan(ref_cents)
@@ -186,6 +186,27 @@ def _note_starts(ref_cents: np.ndarray, cfg: AnalysisConfig) -> np.ndarray:
             starts.append(i)
         last = i                 # a run of candidates is one note change
     return np.array(starts, dtype=int)
+
+
+def note_spans(ref_cents: np.ndarray, cfg: AnalysisConfig) -> list[tuple[int, int]]:
+    """[start, end) frames of each reference note: from one note start to
+    the next, or to a real rest. Brief voicing dropouts (shorter than a
+    phrase gap) don't end a note - real voices flicker for a frame or two."""
+    voiced = ~np.isnan(ref_cents)
+    starts = note_starts(ref_cents, cfg)
+    gap = round(cfg.phrase_min_gap_s / cfg.hop_s)
+    spans = []
+    for k, s in enumerate(starts):
+        nxt = int(starts[k + 1]) if k + 1 < len(starts) else len(ref_cents)
+        seg = voiced[s:nxt]
+        edges = np.diff(np.concatenate(([1], seg.astype(np.int8), [1])))
+        rest_starts, rest_ends = np.flatnonzero(edges == -1), np.flatnonzero(edges == 1)
+        long_rest = [a for a, b in zip(rest_starts, rest_ends) if b - a >= gap]
+        end = s + long_rest[0] if long_rest else nxt
+        while end > s and not voiced[end - 1]:   # trim trailing unvoiced frames
+            end -= 1
+        spans.append((int(s), int(end)))
+    return spans
 
 
 def _direction(devs: np.ndarray) -> str:
@@ -247,7 +268,7 @@ def score(ref: PitchTrack, take: PitchTrack, alignment: Alignment,
     # 50 ms in, once the note is established), relative to your own median.
     # A constant offset is the recording start, not an error.
     raw_drift = (take_j - np.arange(n) - alignment.lag.lag_frames) * hop * 1000
-    starts = _note_starts(ref_c, cfg)
+    starts = note_starts(ref_c, cfg)
     settle = round(0.05 / hop)
     starts = starts[(starts + settle < n)]
     starts = starts[both[starts + settle] & np.isfinite(raw_drift[starts])]
