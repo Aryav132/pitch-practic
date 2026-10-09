@@ -7,3 +7,32 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# Hide developer menu items (Deploy, Rerun...) from testers.
+toolbarMode = "minimal"
+
+# ---------------------------------------------------------------- theme
+# Accent (violet) is deliberately NOT a chart colour: in the graph blue is
+# "you", red is "off-pitch" and yellow is "worst section". Backgrounds
+# match the graph surface so the chart sits in the page, not on it.
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+headingFont = "Fraunces:https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap"
+baseRadius = "large"
+buttonRadius = "full"
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#4a3aa7"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f3f1ec"
+textColor = "#0b0b0b"
+borderColor = "#e1e0d9"
+
+[theme.dark]
+primaryColor = "#9085e9"
+backgroundColor = "#1a1a19"
+secondaryBackgroundColor = "#242422"
+textColor = "#f4f3ef"
+borderColor = "#383835"

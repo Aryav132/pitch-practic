@@ -7,6 +7,7 @@ file only collects inputs and presents the Report.
 
 import hashlib
 import json
+import re
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -110,35 +111,47 @@ def phrase_sentence(s, ref_start: float) -> str:
 
 # ---------------------------------------------------------------- intro
 
-st.title("🎤 Pitch Practice")
-st.write("Sing along to a song, upload your recording, and see **where** your pitch and timing "
-         "differed from the singer, and **what to practise**.")
+st.caption("🎤 PITCH PRACTICE")
+st.title("Sing along. See exactly what to fix.")
+st.write("Upload a song and a recording of yourself singing it. We line the two up and show "
+         "**where** your pitch and timing drifted from the singer, and **what to practise**.")
+
+for col, (icon, head, body) in zip(st.columns(3), [
+        ("🎧", "Record along", "Headphones on, sing with the song while your phone records you."),
+        ("📤", "Upload both", "The song (any MP3) and your recording, up to 60 s of singing."),
+        ("🎯", "See what to fix", "Plain-language tips, and the singer vs you, side by side.")]):
+    with col.container(border=True):
+        st.markdown(f"### {icon}\n**{head}**  \n{body}")
+
+demo_col, _ = st.columns([1, 2])
+# "?demo=1" in the address opens straight onto the demo result: a link you
+# can send people, and how the README screenshots are taken.
+auto_demo = st.query_params.get("demo") == "1" and "report" not in st.session_state
+if demo_col.button("▶  See an example first", help="A built-in demo; no upload needed.") or auto_demo:
+    ref, take = write_demo(WORK_DIR / "demo")
+    with st.spinner("Analysing the demo..."):
+        run_analysis(ref, take, 0.0, AnalysisConfig(), NoSeparator())
+    st.session_state.demo = True
+    st.rerun()
 
 report = st.session_state.get("report")
-with st.expander("How it works & how to record", expanded=report is None):
+with st.expander("Recording checklist"):
     st.markdown(
-        "1. **Pick a song** you want to practise and a section of it (up to 60 s).\n"
-        "2. **Record yourself singing along** on your phone:\n"
-        "   - 🎧 **Wear headphones**, so your phone hears only you, not the song\n"
-        "   - Quiet room, phone about 30 cm from your mouth\n"
-        "   - Press record, then start the song at your chosen point, then sing\n"
-        "   - A different key or octave is fine: we adjust for it\n"
-        "3. **Upload both** below and press *Analyse*.\n\n"
-        "Under the hood: we separate the singer's voice from the music with **Demucs** (a "
-        "pretrained neural network), then use classical signal processing (pYIN pitch "
-        "tracking, dynamic time warping) to compare your singing with theirs. The tips come "
-        "from those measurements, not from an AI.")
-    if st.button("See an example first (built-in demo, no upload needed)"):
-        ref, take = write_demo(WORK_DIR / "demo")
-        with st.spinner("Analysing the demo..."):
-            run_analysis(ref, take, 0.0, AnalysisConfig(), NoSeparator())
-        st.session_state.demo = True
-        st.rerun()
+        "- 🎧 **Wear headphones**, so your phone hears only you, not the song\n"
+        "- Quiet room, phone about 30 cm from your mouth\n"
+        "- Press record first, then start the song at your chosen point, then sing\n"
+        "- A different key or octave is fine: we adjust for it\n\n"
+        "*Under the hood:* the singer's voice is separated from the music with **Demucs** "
+        "(a pretrained neural network); pitch tracking (pYIN), alignment (dynamic time "
+        "warping) and scoring are classical signal processing. Tips come from those "
+        "measurements, not from an AI.")
 
 # ---------------------------------------------------------------- inputs
 
+st.write("")
 col_ref, col_take = st.columns(2)
-with col_ref:
+ref_box, take_box = col_ref.container(border=True), col_take.container(border=True)
+with ref_box:
     st.subheader("1 · The song")
     ref_upload = st.file_uploader("Song file (or a solo vocal)", type=AUDIO_TYPES)
     clean_ref = st.checkbox("This is already a solo vocal (skip separating it from the music)")
@@ -156,7 +169,7 @@ with col_ref:
                    "Preview from that point:")
         st.audio(ref_upload.getvalue(), start_time=int(start_s))
 
-with col_take:
+with take_box:
     st.subheader("2 · Your recording")
     take_upload = st.file_uploader("Your take (up to 90 s)", type=AUDIO_TYPES)
     if take_upload:
@@ -206,14 +219,24 @@ if report:
     if st.session_state.get("demo"):
         st.info("This is the **built-in demo**: a synthetic singer, and a take with three "
                 "deliberate habits. Upload your own files above to analyse yourself.")
-    st.header(f"{report.accuracy_pct:.0f}% of your singing was in tune")
     timing_words = ("very steady" if report.mean_abs_drift_ms < 60 else
                     "mostly steady" if report.mean_abs_drift_ms < 120 else "uneven")
-    st.caption(f"{report.key_description} Your timing was {timing_words} "
-               f"(note starts within about {report.mean_abs_drift_ms:.0f} ms of your usual).")
+    acc = report.accuracy_pct
+    verdict = ("Great take." if acc >= 90 else
+               "Solid take, with a few spots to fix." if acc >= 75 else
+               "Plenty to work on. Start with the first tip below.")
+    with st.container(border=True):
+        badge, words = st.columns([1, 3], vertical_alignment="center")
+        badge.markdown(
+            f"<div style='font-size:3.4rem;font-weight:600;line-height:1'>{acc:.0f}%</div>"
+            f"<div style='opacity:.7'>in tune</div>", unsafe_allow_html=True)
+        words.subheader(verdict)
+        # Plain version for the headline; the cents stay in "All the numbers".
+        key_plain = re.sub(r" \(measured [^)]*\)", "", report.key_description)
+        words.write(f"{key_plain} Your timing was **{timing_words}** "
+                    f"(note starts within about {report.mean_abs_drift_ms:.0f} ms of your usual).")
 
-    tab_fix, tab_phrases, tab_numbers = st.tabs(
-        ["What to work on", "Phrase by phrase", "All the numbers"])
+    tab_fix, tab_phrases, tab_numbers = st.tabs(["What to fix", "Phrases", "Numbers"])
 
     with tab_fix:
         tips = coach(report, cfg)
@@ -249,7 +272,8 @@ if report:
             st.markdown(phrase_sentence(s, report.ref_start_s))
             x_range = (report.ref_start_s + s.start_s - 0.5, report.ref_start_s + s.end_s + 0.5)
             listen_row(report.ref_start_s + s.start_s, report.ref_start_s + s.end_s)
-        st.plotly_chart(make_figure(report, dark=dark, x_range=x_range), theme=None)
+        st.plotly_chart(make_figure(report, dark=dark, x_range=x_range, show_title=False),
+                        theme=None, config={"displayModeBar": False})
 
     with tab_numbers:
         m1, m2, m3, m4 = st.columns(4)

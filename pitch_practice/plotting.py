@@ -40,8 +40,8 @@ def _note_axis(cents: np.ndarray):
     return midis * 100, [librosa.midi_to_note(m) for m in midis]
 
 
-def make_figure(r: Report, dark: bool = False, x_range: tuple[float, float] | None = None
-                ) -> go.Figure:
+def make_figure(r: Report, dark: bool = False, x_range: tuple[float, float] | None = None,
+                show_title: bool = True) -> go.Figure:
     th = THEMES["dark" if dark else "light"]
     SURFACE, TEXT, TEXT_2, GRID, AXIS = (th[k] for k in ("surface", "text", "text2", "grid", "axis"))
     REF_COLOR, YOU_COLOR = th["ref"], th["you"]
@@ -117,12 +117,15 @@ def make_figure(r: Report, dark: bool = False, x_range: tuple[float, float] | No
     fig.update_layout(
         template="plotly_dark" if dark else "plotly_white",
         paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
-        font=dict(family="system-ui, -apple-system, sans-serif", color=TEXT, size=13),
-        height=640, margin=dict(l=60, r=24, t=110, b=50), hovermode="closest",
-        title=dict(text=f"Pitch accuracy {r.accuracy_pct:.0f}%  ·  "
-                        f"timing ±{r.mean_abs_drift_ms:.0f} ms",
+        font=dict(family="Inter, system-ui, -apple-system, sans-serif", color=TEXT, size=13),
+        height=680, hovermode="closest",
+        margin=dict(l=60, r=24, t=90 if show_title else 50, b=110),
+        title=dict(text=(f"Pitch accuracy {r.accuracy_pct:.0f}%  ·  "
+                         f"timing ±{r.mean_abs_drift_ms:.0f} ms") if show_title else "",
                    font=dict(size=14, color=TEXT_2), x=0, xanchor="left"),
-        legend=dict(orientation="h", y=1.08, x=1, xanchor="right", yanchor="bottom"),
+        # Legend under the graph: full width, so it never collides with the
+        # title or the worst-section labels on a narrow phone screen.
+        legend=dict(orientation="h", y=-0.12, x=0, xanchor="left", yanchor="top"),
     )
     fig.update_xaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False)
     fig.update_yaxes(gridcolor=GRID, linecolor=AXIS)
