@@ -1,0 +1,9 @@
+# Local development: only this Mac can open the app (Streamlit otherwise
+# listens on every network interface, e.g. the whole Wi-Fi network).
+# The Phase 2 deployment overrides this with its own address.
+[server]
+address = "127.0.0.1"  # not "localhost": Safari tries IPv6 ::1 first and fails
+headless = true
+
+[browser]
+gatherUsageStats = false

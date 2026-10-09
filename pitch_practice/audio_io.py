@@ -78,6 +78,17 @@ def _probe_channels(path: Path) -> int:
         raise AudioDecodeError(f"{path.name}: no audio stream found") from None
 
 
+def probe_duration(path: str | Path) -> float:
+    """Length of the file in seconds (for the start-time slider)."""
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(path)], capture_output=True, text=True)
+    try:
+        return float(proc.stdout.strip())
+    except ValueError:
+        raise AudioDecodeError(f"{Path(path).name}: could not read duration") from None
+
+
 def file_sha256(path: str | Path, chunk: int = 1 << 20) -> str:
     """Content hash used as the separation cache key (step 4)."""
     h = hashlib.sha256()
