@@ -30,7 +30,7 @@ def main() -> None:
             page = browser.new_page(viewport={"width": 1280, "height": 1000},
                                     color_scheme=scheme, device_scale_factor=2)
             page.goto(URL)
-            badge = page.get_by_text("in tune", exact=True)
+            badge = page.get_by_text("of your notes were right", exact=True)
             badge.wait_for(timeout=60_000)
             page.wait_for_timeout(1500)      # fonts + audio players settle
             if scheme == "light":
@@ -40,9 +40,10 @@ def main() -> None:
             page.wait_for_timeout(500)
             page.screenshot(path=OUT / f"results_{scheme}.png")
             if scheme == "light":
-                page.get_by_role("tab", name="Phrases").click()
+                # Simple mode opens the worst line automatically.
+                page.get_by_role("tab", name="Line by line").click()
                 pills = page.get_by_role("radiogroup", name="Phrases")
-                pills.get_by_text("0:05.9").click()
+                page.get_by_text("Every note in this line").wait_for()
                 page.locator(".js-plotly-plot").first.wait_for()
                 page.wait_for_timeout(2000)
                 to_top(pills)

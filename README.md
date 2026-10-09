@@ -10,9 +10,15 @@ you choose.
 
 ![Results page: score, plain-language tips, listen-and-compare](docs/results_light.png)
 
-| Phrase view: zoom into one phrase and hear it | Dark mode |
+| Line by line: every note marked ✅ / ⬆️ sing higher / ⬇️ sing lower | Dark mode |
 |---|---|
 | ![Phrase view](docs/phrase.png) | ![Dark mode](docs/results_dark.png) |
+
+**Two ways to read it.** *Simple* (the default) uses everyday words: "too low",
+"a small step", "a quarter of a second late", with beginner exercises and a
+*Hear the difference* player (singer → you → singer, optionally slower). *Detailed*
+uses music terms (flat, sharp, semitones, cents, ms). Same measurements, two
+vocabularies; the graph is available in both.
 
 *Screenshots use the built-in demo: a synthetic singer and a take with three
 deliberate habits. No copyrighted audio is in this repository.*
@@ -123,7 +129,7 @@ python -m pitch_practice.cli my_vocal.m4a my_take.m4a --clean-reference   # no s
 ## Testing
 
 ```bash
-pytest              # 112 fast tests, about 20 s
+pytest              # 128 fast tests, about 25 s
 pytest -m slow      # + 1 test that runs the real Demucs model
 ```
 

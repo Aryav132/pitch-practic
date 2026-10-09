@@ -7,7 +7,6 @@ file only collects inputs and presents the Report.
 
 import hashlib
 import json
-import re
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -16,11 +15,12 @@ import streamlit as st
 
 from pitch_practice.alignment import AlignmentError
 from pitch_practice.audio_io import AudioDecodeError, load_audio, probe_duration
-from pitch_practice.coaching import coach, describe_cents
+from pitch_practice.coaching import (
+    coach, describe_cents, describe_key_plain, note_verdicts, plain_seconds, plain_size)
 from pitch_practice.config import AnalysisConfig
 from pitch_practice.demo import write_demo
 from pitch_practice.pipeline import InputError, analyze_files
-from pitch_practice.playback import clip, melody_tone, take_window
+from pitch_practice.playback import clip, hear_the_difference, melody_tone, take_window
 from pitch_practice.plotting import make_figure
 from pitch_practice.scoring import summary_text
 from pitch_practice.separation import DemucsSeparator, NoSeparator
@@ -66,20 +66,64 @@ def run_analysis(ref_path, take_path, start_s, cfg, separator) -> None:
     )
 
 
-def listen_row(t0: float, t1: float) -> None:
-    """Three players for the same moment: singer, you, and the right notes."""
+def listen(t0: float, t1: float, key: str, expert: bool) -> None:
+    """Simple: one "hear the difference" player (singer, you, singer), with a
+    slower option. Detailed: the three separate players. Both offer the other
+    one folded away."""
     r, sr = st.session_state.report, st.session_state.cfg.sr
     a, b = t0 - 0.3, t1 + 0.3
     singer = clip(st.session_state.ref_audio, sr, a - r.ref_start_s, b - r.ref_start_s)
     ta, tb = take_window(r, t0, t1, pad=0.3)
     you = clip(st.session_state.take_audio, sr, ta, tb)
-    cols = st.columns(3)
-    cols[0].caption("▶ The singer")
-    cols[0].audio(singer, sample_rate=sr)
-    cols[1].caption("▶ You")
-    cols[1].audio(you, sample_rate=sr)
-    cols[2].caption("▶ The right notes (clean tone)")
-    cols[2].audio(melody_tone(r, a, b, sr), sample_rate=sr)
+
+    def difference():
+        slow = st.toggle("Slower", key=f"slow_{key}",
+                         help="75% speed. The notes stay at exactly the same pitch.")
+        st.caption(f"🔊 Hear the difference ({clock(t0)}–{clock(t1)}): the singer, then you, "
+                   "then the singer again.")
+        st.audio(hear_the_difference(singer, you, sr, slow=slow), sample_rate=sr)
+
+    def separate():
+        cols = st.columns(3)
+        for col, label, y in [(cols[0], "▶ The singer", singer), (cols[1], "▶ You", you),
+                              (cols[2], "▶ The right notes (clean tone)", melody_tone(r, a, b, sr))]:
+            col.caption(label)
+            col.audio(y, sample_rate=sr)
+
+    if expert:
+        separate()
+        with st.expander("Hear the difference (back to back)"):
+            difference()
+    else:
+        difference()
+        with st.expander("Listen to each one separately"):
+            separate()
+
+
+TUNER = {  # verdict -> (icon, simple words, detailed words)
+    "ok": ("✅", "right", "in tune"),
+    "low": ("⬆️", "too low: sing higher", "flat"),
+    "high": ("⬇️", "too high: sing lower", "sharp"),
+    "missed": ("⏸", "not sung", "not sung"),
+    "unclear": ("·", "unclear", "unclear"),
+}
+
+
+def tuner_strip(verdicts, expert: bool) -> None:
+    """One small card per note, like a tuner: right / sing higher / sing lower."""
+    if not verdicts:
+        st.caption("No clear notes in this part.")
+        return
+    with st.container(horizontal=True, gap="small"):
+        for v in verdicts:
+            icon, simple, detailed = TUNER[v.verdict]
+            words = detailed + (f" {v.dev_cents:+.0f} c" if expert and v.verdict in ("low", "high")
+                                else "") if expert else simple
+            with st.container(border=True, width=150 if not expert else 120):
+                st.markdown(f"<div style='font-size:1.4rem;line-height:1.2'>{icon}</div>"
+                            f"<div style='font-size:.85rem'>{words}</div>"
+                            f"<div style='font-size:.75rem;opacity:.6'>{clock(v.start_s)}</div>",
+                            unsafe_allow_html=True)
 
 
 def phrase_status(s) -> tuple[str, str]:
@@ -92,20 +136,27 @@ def phrase_status(s) -> tuple[str, str]:
     return "✗", "Needs work"
 
 
-def phrase_sentence(s, ref_start: float) -> str:
+def phrase_sentence(s, ref_start: float, expert: bool) -> str:
     icon, word = phrase_status(s)
     parts = [f"**{icon} {word}** · {clock(ref_start + s.start_s)}–{clock(ref_start + s.end_s)}."]
     if s.scored_s and s.off_direction:
-        direction = {"flat": "too low", "sharp": "too high"}.get(s.off_direction, "both too high and too low")
-        parts.append(f"{s.off_pitch_frac:.0%} of it was off, {direction}, "
-                     f"{describe_cents(s.off_dev_cents)}.")
+        if expert:
+            direction = {"flat": "flat", "sharp": "sharp"}.get(s.off_direction, "both flat and sharp")
+            parts.append(f"{s.off_pitch_frac:.0%} off-pitch, {direction}, "
+                         f"{describe_cents(s.off_dev_cents)}.")
+        else:
+            direction = {"flat": "too low", "sharp": "too high"}.get(
+                s.off_direction, "sometimes too high, sometimes too low")
+            parts.append(f"{s.off_pitch_frac:.0%} of it was off, {direction}, "
+                         f"{plain_size(s.off_dev_cents)}.")
     elif s.scored_s:
-        parts.append("In tune throughout.")
+        parts.append("Right on throughout." if not expert else "In tune throughout.")
     if s.missed_frac and s.missed_frac >= 0.25:
         parts.append(f"You didn't sing {s.missed_frac:.0%} of it.")
     if s.drift_ms == s.drift_ms and abs(s.drift_ms) >= 80:
-        parts.append(f"You were about {abs(s.drift_ms):.0f} ms "
-                     f"{'later' if s.drift_ms > 0 else 'earlier'} than your usual timing.")
+        when = f"about {abs(s.drift_ms):.0f} ms" if expert else plain_seconds(s.drift_ms)
+        parts.append(f"You were {when} {'later' if s.drift_ms > 0 else 'earlier'} "
+                     "than your usual timing.")
     return " ".join(parts)
 
 
@@ -219,60 +270,78 @@ if report:
     if st.session_state.get("demo"):
         st.info("This is the **built-in demo**: a synthetic singer, and a take with three "
                 "deliberate habits. Upload your own files above to analyse yourself.")
-    timing_words = ("very steady" if report.mean_abs_drift_ms < 60 else
-                    "mostly steady" if report.mean_abs_drift_ms < 120 else "uneven")
+
+    mode = st.segmented_control(
+        "How should we explain it?", ["Simple", "Detailed"], default="Simple", key="mode",
+        help="Simple: everyday words, no music knowledge needed. "
+             "Detailed: music terms (flat, sharp, semitones) and exact numbers.")
+    expert = mode == "Detailed"
+
     acc = report.accuracy_pct
     verdict = ("Great take." if acc >= 90 else
                "Solid take, with a few spots to fix." if acc >= 75 else
                "Plenty to work on. Start with the first tip below.")
+    timing_words = ("very steady" if report.mean_abs_drift_ms < 60 else
+                    "mostly steady" if report.mean_abs_drift_ms < 120 else "uneven")
     with st.container(border=True):
         badge, words = st.columns([1, 3], vertical_alignment="center")
         badge.markdown(
             f"<div style='font-size:3.4rem;font-weight:600;line-height:1'>{acc:.0f}%</div>"
-            f"<div style='opacity:.7'>in tune</div>", unsafe_allow_html=True)
+            f"<div style='opacity:.7'>{'in tune' if expert else 'of your notes were right'}</div>",
+            unsafe_allow_html=True)
         words.subheader(verdict)
-        # Plain version for the headline; the cents stay in "All the numbers".
-        key_plain = re.sub(r" \(measured [^)]*\)", "", report.key_description)
-        words.write(f"{key_plain} Your timing was **{timing_words}** "
-                    f"(note starts within about {report.mean_abs_drift_ms:.0f} ms of your usual).")
+        if expert:
+            words.write(f"{report.key_description} Note-start timing within about "
+                        f"{report.mean_abs_drift_ms:.0f} ms of your usual ({timing_words}).")
+        else:
+            words.write(f"{describe_key_plain(report.raw_offset_cents, report.key_mode)} "
+                        f"Your timing was **{timing_words}**.")
 
-    tab_fix, tab_phrases, tab_numbers = st.tabs(["What to fix", "Phrases", "Numbers"])
+    tab_fix, tab_lines, tab_numbers = st.tabs(
+        ["What to fix", "Phrases" if expert else "Line by line", "Numbers"])
 
     with tab_fix:
-        tips = coach(report, cfg)
+        tips = coach(report, cfg, expert=expert)
         if not tips:
-            st.success("No clear problems found in this take. Try a harder section, or make "
-                       "the off-pitch setting stricter.")
+            st.success("No clear problems found in this take. Try a harder part of the song, "
+                       "or make the off-pitch setting stricter.")
         for k, tip in enumerate(tips, 1):
             with st.container(border=True):
                 st.markdown(f"#### {k}. {tip.title}")
                 st.write(tip.detail)
-                st.markdown(f"**Try this:** {tip.try_this}")
+                st.markdown(f"**{'Try this' if expert else 'Practise like this'}:** {tip.try_this}")
                 if tip.where:
-                    t0, t1 = tip.where[0]
-                    st.caption(f"Listen at {clock(t0)}–{clock(t1)}:")
-                    listen_row(t0, t1)
+                    listen(*tip.where[0], key=f"tip{k}", expert=expert)
         st.caption("Tips come from your measurements. The practice suggestions are general "
                    "singing advice.")
 
-    with tab_phrases:
-        st.write("Each button is one phrase of the song. Pick one to zoom in and listen.")
+    with tab_lines:
         sections = [s for s in report.sections if s.ref_voiced_s >= 0.3]
+        unit = "phrase" if expert else "line"
+        st.write(f"Each button is one {unit} of the song. Pick one to see every note and listen.")
+        worst_idx = next((i for i, s in enumerate(sections)
+                          if report.worst and s.index == report.worst[0].index), None)
         pick = st.pills(
             "Phrases", list(range(len(sections))), label_visibility="collapsed",
+            default=worst_idx, key="pick",
             format_func=lambda i: f"{phrase_status(sections[i])[0]} "
                                   f"{clock(report.ref_start_s + sections[i].start_s)}")
-        st.caption("✓ good · ⚠ some issues · ✗ needs work. On the graph: grey band = the "
-                   "singer, blue line = you, red dots = more than "
-                   f"{report.threshold_cents:.0f} cents off "
-                   f"(about {report.threshold_cents / 100:.1f} of a piano key).")
+        st.caption("✓ good · ⚠ some issues · ✗ needs work")
         x_range = None
         if pick is not None:
             s = sections[pick]
-            st.markdown(phrase_sentence(s, report.ref_start_s))
-            x_range = (report.ref_start_s + s.start_s - 0.5, report.ref_start_s + s.end_s + 0.5)
-            listen_row(report.ref_start_s + s.start_s, report.ref_start_s + s.end_s)
-        st.plotly_chart(make_figure(report, dark=dark, x_range=x_range, show_title=False),
+            t0, t1 = report.ref_start_s + s.start_s, report.ref_start_s + s.end_s
+            st.markdown(phrase_sentence(s, report.ref_start_s, expert))
+            st.caption("Every note in this " + unit + ":")
+            tuner_strip([v for v in note_verdicts(report, cfg) if t0 - 0.05 <= v.start_s < t1],
+                        expert)
+            listen(t0, t1, key=f"line{pick}", expert=expert)
+            x_range = (t0 - 0.5, t1 + 0.5)
+        st.caption("On the graph: grey band = the singer, blue line = you, red dots = "
+                   + (f"more than {report.threshold_cents:.0f} cents off." if expert else
+                      "too high or too low. Higher on the graph = higher note."))
+        st.plotly_chart(make_figure(report, dark=dark, x_range=x_range, show_title=False,
+                                    plain=not expert),
                         theme=None, config={"displayModeBar": False})
 
     with tab_numbers:

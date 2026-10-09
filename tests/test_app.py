@@ -20,18 +20,21 @@ def test_demo_shows_plain_language_tips():
     at = app()
     next(b for b in at.button if "See an example" in b.label).click().run()
     assert not at.exception
-    assert any("in tune</div>" in m.value for m in at.markdown)     # score badge
+    assert any("%</div>" in m.value for m in at.markdown)           # score badge
     cards = [m.value for m in at.markdown if m.value.startswith("#### ")]
-    assert cards == ["#### 1. You come in late after pauses",
-                     "#### 2. Your high notes are flat",
+    assert cards == ["#### 1. You start lines late after a pause",
+                     "#### 2. Your highest notes come out too low",
                      "#### 3. Practise 0:05.9–0:08.4"]
-    assert len(at.get("audio")) >= 9      # singer / you / right notes for each tip
+    # Simple mode: one "hear the difference" player per tip, plus the three
+    # separate players folded away in an expander.
+    assert len(at.get("audio")) >= 12
 
 
 def test_picking_a_phrase_zooms_and_explains_it():
     at = app()
     next(b for b in at.button if "See an example" in b.label).click().run()
-    at.get("button_group")[0].set_value(1).run()     # the phrase pills
+    pills = next(b for b in at.get("button_group") if b.label == "Phrases")
+    pills.set_value(1).run()
     assert not at.exception
     assert any("Some issues" in m.value or "Needs work" in m.value or "Good" in m.value
                for m in at.markdown)
@@ -42,4 +45,14 @@ def test_demo_link_opens_on_the_result():
     at.query_params["demo"] = "1"
     at.run()
     assert not at.exception
-    assert any("in tune</div>" in m.value for m in at.markdown)
+    assert any("%</div>" in m.value for m in at.markdown)
+
+
+def test_detailed_mode_uses_music_terms():
+    at = app()
+    next(b for b in at.button if "See an example" in b.label).click().run()
+    mode = next(b for b in at.get("button_group") if b.label == "How should we explain it?")
+    mode.set_value("Detailed").run()
+    assert not at.exception
+    cards = [m.value for m in at.markdown if m.value.startswith("#### ")]
+    assert "#### 2. Your high notes are flat" in cards

@@ -47,3 +47,23 @@ def melody_tone(r: Report, t0: float, t1: float, sr: int) -> np.ndarray:
     phase = 2 * np.pi * np.cumsum(np.where(voiced, hz, 0.0)) / sr
     y = (np.sin(phase) + 0.3 * np.sin(2 * phase) + 0.1 * np.sin(3 * phase)) * gate
     return (0.25 * y / 1.4).astype(np.float32)
+
+
+def hear_the_difference(singer: np.ndarray, you: np.ndarray, sr: int,
+                        slow: bool = False) -> np.ndarray:
+    """Singer -> pause -> you -> pause -> singer, as one clip. Hearing them back
+    to back is how an untrained ear starts to notice "mine was lower".
+    slow=True plays at 75% speed WITHOUT changing pitch (phase-vocoder time
+    stretch), so the notes stay exactly as sung."""
+    def norm(y):
+        peak = np.max(np.abs(y)) if y.size else 0.0
+        return y / peak * 0.8 if peak > 0 else y   # same loudness for a fair comparison
+
+    gap = np.zeros(int(0.5 * sr), np.float32)
+    parts = [norm(singer), gap, norm(you), gap, norm(singer)]
+    if slow:
+        import librosa
+
+        parts = [librosa.effects.time_stretch(p, rate=0.75) if p is not gap
+                 else np.zeros(int(0.5 * sr / 0.75), np.float32) for p in parts]
+    return np.concatenate(parts).astype(np.float32)
