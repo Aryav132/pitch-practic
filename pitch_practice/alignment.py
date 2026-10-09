@@ -214,9 +214,12 @@ def dtw_banded(ref_cents, take_cents, lag, band, cfg: AnalysisConfig):
     path = _backtrack(D, steps, lag, band)
     i, j, k = path.T
     # A band-edge cell only counts if the edge is the band's limit, not the
-    # start/end of the take itself.
+    # start/end of the take itself - including when the reference "should" be
+    # past the end of the take (the take ended: a coverage issue, not timing).
     m, w = len(take_cents), 2 * band + 1
-    at_edge = ((k == 0) & (j > 0)) | ((k == w - 1) & (j < m - 1))
+    centre = i + lag
+    inside = (centre >= 0) & (centre <= m - 1)
+    at_edge = inside & (((k == 0) & (j > 0)) | ((k == w - 1) & (j < m - 1)))
     return i, j, int(np.count_nonzero(at_edge)), float(D[-1].min())
 
 

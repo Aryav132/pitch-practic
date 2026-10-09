@@ -69,7 +69,7 @@ class PyinTracker:
             & (voiced_prob >= cfg.min_voiced_prob)
             & (_db_rel_max(rms) > cfg.energy_gate_db)
         )
-        voiced = _drop_short_runs(voiced, round(cfg.min_voiced_run_s / cfg.hop_s))
+        voiced = drop_short_runs(voiced, round(cfg.min_voiced_run_s / cfg.hop_s))
 
         f0 = np.where(voiced, f0, np.nan)
         return PitchTrack(times=times, f0_hz=f0, voiced_prob=voiced_prob)
@@ -82,7 +82,7 @@ def _db_rel_max(rms: np.ndarray) -> np.ndarray:
     return 20.0 * np.log10(np.maximum(rms, 1e-12) / peak)
 
 
-def _drop_short_runs(mask: np.ndarray, min_len: int) -> np.ndarray:
+def drop_short_runs(mask: np.ndarray, min_len: int) -> np.ndarray:
     """Set True-runs shorter than min_len frames to False."""
     out = mask.copy()
     # Run boundaries: where the padded mask flips 0->1 (start) or 1->0 (end).

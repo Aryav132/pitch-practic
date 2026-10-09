@@ -32,7 +32,10 @@ class AnalysisConfig:
     # unvoiced. Targets breath noise and low-level separation residue.
     energy_gate_db: float = -40.0
     # Voiced runs shorter than this are treated as tracker noise and dropped.
-    min_voiced_run_s: float = 0.05
+    # Was 0.05 s; raised after the same ~80 ms room-noise blip appeared in two
+    # real recordings and became a fake "note" in scoring. An isolated sung
+    # note under 100 ms is rare (fast runs sit inside continuous voicing).
+    min_voiced_run_s: float = 0.10
 
     max_ref_s: float = 60.0
     max_take_s: float = 90.0
@@ -58,7 +61,10 @@ class AnalysisConfig:
 
     # --- DTW ----------------------------------------------------------------
     # Path may stray this far from the diagonal implied by the lag.
-    dtw_band_s: float = 1.5
+    # Was 1.5 s. Real sing-along data (headphones) drifted <= 0.35 s; with
+    # 1.5 s, an out-of-tune reference let DTW slide 1.5 s to pair notes by
+    # pitch, turning pitch errors into fake timing errors.
+    dtw_band_s: float = 0.75
     # Per-frame pitch cost is capped so one octave error can't drag the path.
     dtw_cost_cap_cents: float = 600.0
     # Cost of pairing a voiced frame with an unvoiced one.
@@ -66,6 +72,35 @@ class AnalysisConfig:
     # Extra cost for each non-diagonal step. Stops DTW "chasing" small
     # vibrato/tuning wiggles with micro-warps that flatter a bad take.
     dtw_step_penalty: float = 50.0
+
+    # --- Scoring ------------------------------------------------------------
+    # A frame is off-pitch if |take - ref| (after key offset) exceeds this.
+    pitch_threshold_cents: float = 40.0
+    # A section is called early/late if its median drift exceeds this.
+    timing_threshold_ms: float = 150.0
+    # Timing is only measured at reference note starts: a voice entry, or a
+    # pitch change larger than this (over 60 ms of median-smoothed pitch).
+    # Inside a held note every DTW pairing costs the same, so "timing" there
+    # is arbitrary. 80 c is above vibrato's ~30 c and below a semitone step.
+    onset_change_cents: float = 80.0
+    min_onset_gap_s: float = 0.15
+    # A section must have at least this much of its singing off-pitch or
+    # missed to be listed as a "worst" section.
+    min_worst_badness: float = 0.10
+    # Reference phrases are split at silences at least this long...
+    phrase_min_gap_s: float = 0.25
+    # Phrases longer than max_section_s (e.g. a legato line with no gaps, or
+    # no gaps at all) are cut into equal parts of about fallback_window_s.
+    # A 7 s "worst section" tells a singer nothing.
+    fallback_window_s: float = 2.0
+    max_section_s: float = 4.0
+    # Sections with less reference singing than this aren't ranked.
+    min_section_voiced_s: float = 0.5
+    # Deviation within this of +/-1200 c, lasting under max_run, is treated
+    # as a tracker octave error ("unsure"), not a singer error.
+    octave_error_tolerance_cents: float = 150.0
+    octave_error_max_run_s: float = 0.15
+    n_worst_sections: int = 3
 
     @property
     def hop_s(self) -> float:

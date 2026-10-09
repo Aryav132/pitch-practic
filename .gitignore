@@ -13,3 +13,6 @@ __pycache__/
 *.wav
 *.flac
 *.ogg
+
+# Generated HTML/JSON reports
+reports/

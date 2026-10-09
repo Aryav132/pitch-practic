@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from pitch_practice.config import AnalysisConfig
-from pitch_practice.pitch import PyinTracker, _drop_short_runs, hz_to_cents
+from pitch_practice.pitch import PyinTracker, drop_short_runs, hz_to_cents
 from tests.synth import SR, cents_to_hz, noise, silence, tone
 
 tracker = PyinTracker(AnalysisConfig())
@@ -78,9 +78,9 @@ def test_energy_gate_removes_faint_bleed():
     assert not tr.voiced[tr.times > 1.1].any()
 
 
-def test_drop_short_runs():
+def testdrop_short_runs():
     m = np.array([0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1], dtype=bool)
-    out = _drop_short_runs(m, min_len=3)
+    out = drop_short_runs(m, min_len=3)
     assert out.tolist() == [0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0]
 
 
